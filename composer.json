@@ -1,0 +1,23 @@
+{
+  "name": "divergentsoft/apns-php",
+  "description": "PHP library for sending iOS remote push notifications",
+  "require": {
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^4.8"
+  },
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "DivergentSoft Technology Group",
+      "email": "info@divergentsoft.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Push\\" : "src/"
+    }
+  },
+  "minimum-stability": "stable"
+}
+
