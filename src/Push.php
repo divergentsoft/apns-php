@@ -4,19 +4,93 @@
 namespace Push;
 
 
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger;
+
+/**
+ * Class Push
+ * @package Push
+ */
 class Push
 {
 
+    /**
+     * Apple's production gateway
+     */
     const PRODUCTION_SERVER = 'ssl://gateway.push.apple.com:2195';
 
+    /**
+     * Apple's sandbox gateway
+     */
     const SANDBOX_SERVER = 'ssl://gateway.sandbox.push.apple.com:2195';
 
-    private $client;
+    /**
+     * @var Monolog logger instance
+     */
+    protected $log;
 
-    private $server;
+    /**
+     * @var
+     */
+    protected $client;
 
+    /**
+     * @var
+     */
+    protected $server;
+
+    /**
+     * @var
+     */
+    protected $production;
+
+    /**
+     * @var
+     */
+    protected $certificate;
+
+    /**
+     * @var
+     */
+    protected $passphrase;
+
+    /**
+     * Push constructor. Pass in the log location.
+     * @param $logLocation
+     */
+    public function __construct($logLocation = __DIR__.'/../log.txt')
+    {
+        $this->log = new Logger('Push');
+
+        if(!is_file($logLocation)){
+
+            fopen( $logLocation,'a');
+        }
+
+        if ($logLocation != null) {
+
+            $this->log->pushHandler(new StreamHandler($logLocation), Logger::WARNING);
+        }
+    }
+
+
+    /**
+     * Tries to connect to desired APNS and returns false if unavailable
+     *
+     * @param $production
+     * @param $certificate
+     * @param null $passphrase
+     * @return bool
+     * @throws PushException
+     */
     public function connect($production, $certificate, $passphrase = null)
     {
+        $this->production = $production;
+
+        $this->certificate = $certificate;
+
+        $this->passphrase = $passphrase;
+
         $this->verifyEnvironment($production, $certificate);
 
         $ctx = $this->configureContext($certificate, $passphrase);
@@ -40,68 +114,71 @@ class Push
         return true;
     }
 
+    /**
+     * Send the push notification(s)
+     *
+     * @param Message $message
+     */
     public function send(Message $message)
     {
-        $body["aps"] = array(
-            "content-available" => 1,
-            "badge" => 0,
-            "alert" => "some alert!"
-        );
-
-        $this->body = $body;
-        // Encode the payload as JSON
-        $payload = json_encode($this->body);
-
-        $lastToken = "";
-
-        foreach ($this->tokens as $token){
+        foreach ($message->recipients as $token) {
 
             $frameData =
                 chr(1) . pack('n', 32) . pack('H*', $token) .
-                chr(2) . pack('n', strlen($payload)) . $payload .
-                chr(3) . pack('n', 4) . pack('N',"123") .
+                chr(2) . pack('n', $message->getMessageSize()) . $message->encodedMessage .
+                chr(3) . pack('n', 4) . pack('N', "123") .
                 chr(4) . pack('n', 4) . pack('N', time() + 86400) .
                 chr(5) . pack('n', 1) . chr(10);
+
             $msg = chr(2) . pack('N', strlen($frameData)) . $frameData;
 
-            // Send it to the server
+            fwrite($this->client, $msg, strlen($msg));
 
-            $totalBytes = fwrite($this->fp, $msg, strlen($msg));
+            // TODO: This will need to be addressed
+            /*
+             * Currently waiting for 100ms to see if there is a response from Apple which
+             * indicates the last push failed and silently closes the connection. We need to
+             * restart the connection and keep going after the last failure when this happens.
+             */
+            usleep(100000);
 
-            if($totalBytes == 0){
-                echo "disconnected! $lastToken";
-            }
-            $lastToken = $token;
-
-            usleep(50000);
-
-            $apple_error_response = fread($this->fp, 6);
+            $apple_error_response = fread($this->client, 6);
 
             if ($apple_error_response == "") {
-                \Log::info("Sent notification to: " . $token);
+
+                $this->log->addNotice("Message sent");
+
             } else {
+
                 $error_response = unpack('Ccommand/Cstatus_code/Nidentifier', $apple_error_response);
-                \Log::warning("Push notification to: " . $token . " failed with error: " . $error_response['status_code']);
+
+                $this->log->addError("Push notification to: " . $token . " failed with error: " . $error_response['status_code']);
 
                 $this->closeConnection();
 
-                $this->openConnection();
+                $this->connect($this->production,$this->certificate,$this->passphrase);
 
             }
 
         }
 
-
-
         $this->closeConnection();
 
     }
 
+    /**
+     * Close the socket stream
+     */
     protected function closeConnection()
     {
         fclose($this->client);
     }
 
+    /**
+     * @param $production
+     * @param $certificate
+     * @throws PushException
+     */
     protected function verifyEnvironment($production, $certificate)
     {
         if ($production) {
@@ -119,6 +196,11 @@ class Push
         }
     }
 
+    /**
+     * @param $certificate
+     * @param $passphrase
+     * @return resource
+     */
     protected function configureContext($certificate, $passphrase)
     {
         $ctx = stream_context_create();
@@ -130,9 +212,13 @@ class Push
         return $ctx;
     }
 
+    /**
+     * Since Apple does not return any value on successful push notifications,
+     * we need to set the blocking to 0 so that we don't wait for a response after
+     * sending a message before moving on to the next one.
+     */
     protected function setStreamBlocking()
     {
-
         stream_set_blocking($this->client, 0);
     }
 }
