@@ -36,7 +36,9 @@ class PushTest extends PHPUnit_Framework_TestCase
 
     public function testPush()
     {
-        $message = new \Push\Message(static::TEST_TOKEN);
+        $message = new \Push\Message();
+
+        $message->initialize(static::TEST_TOKEN);
 
         $message->setAlert("ahhhhh");
 

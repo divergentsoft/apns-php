@@ -60,15 +60,11 @@ class Message
     protected $customProperties;
 
 
-    /**
-     * Pass in the tokens as either an array or single value
-     */
-    public function __construct($tokens)
+    public function initialize($tokens)
     {
         $this->validateTokens($tokens);
 
         $this->message[static::APPLE_NAMESPACE] = "";
-
     }
 
     /**
