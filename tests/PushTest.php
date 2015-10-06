@@ -7,13 +7,15 @@ class PushTest extends PHPUnit_Framework_TestCase
     /**
      * These will need to be set to some actual values for the tests to pass
      */
-    const TEST_TOKEN = '6eb29758 dc3d8a11 6df540eb b546e02d 6d63b34c a9498e5b 77a4c733 7ea939ca';
+    const TEST_TOKEN = [
+        'bc95b585a4a8bc8238bef87070eaf5ea56a7ac304c350073baebb2e1a8946a71',
+        'eccfcfbfbb9592c3c3a46740254cb49865cdfa384ede7f93882665e141011609'
+    ];
 
-    const TEST_CERT = 'cert.pem';
+    const TEST_CERT = '/Users/rob/Code/php/apns-php/src/oma.pem';
 
     public function setUp()
     {
-
         $this->push = new \Push\Push();
     }
 
@@ -23,12 +25,10 @@ class PushTest extends PHPUnit_Framework_TestCase
     public function testBadCertificateLocation()
     {
         $this->push->connect(false, '/some/dir/code/ssl/cert.pem');
-
     }
 
     public function testConnectionToSandbox()
     {
-
         $connection = $this->push->connect(false, static::TEST_CERT);
 
         $this->assertTrue($connection);
@@ -47,7 +47,6 @@ class PushTest extends PHPUnit_Framework_TestCase
         $this->push->connect(false, static::TEST_CERT);
 
         $this->push->send($message);
-
     }
 
 }

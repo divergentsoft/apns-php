@@ -20,4 +20,7 @@ $push->connect(false,'cert.pem');
 
 $push->send($message);
 
+// Get a list of failed tokens to remove for next time
+$push->getFailedTokens();
+
 ```

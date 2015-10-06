@@ -24,6 +24,7 @@ class Push
      */
     const SANDBOX_SERVER = 'ssl://gateway.sandbox.push.apple.com:2195';
 
+
     /**
      * @var Monolog logger instance
      */
@@ -55,16 +56,22 @@ class Push
     protected $passphrase;
 
     /**
+     * @var
+     */
+    protected $failedTokens;
+
+
+    /**
      * Push constructor. Pass in the log location.
      * @param $logLocation
      */
-    public function __construct($logLocation = __DIR__.'/../log.txt')
+    public function __construct($logLocation = __DIR__ . '/../log.txt')
     {
         $this->log = new Logger('Push');
 
-        if(!is_file($logLocation)){
+        if (!is_file($logLocation)) {
 
-            fopen( $logLocation,'a');
+            fopen($logLocation, 'a');
         }
 
         if ($logLocation != null) {
@@ -95,18 +102,24 @@ class Push
 
         $ctx = $this->configureContext($certificate, $passphrase);
 
-        $this->client = stream_socket_client(
-            $this->server,
-            $err,
-            $errstr,
-            60,
-            STREAM_CLIENT_CONNECT | STREAM_CLIENT_PERSISTENT,
-            $ctx
-        );
+        try {
+            $this->client = stream_socket_client(
+                $this->server,
+                $err,
+                $errstr,
+                60,
+                STREAM_CLIENT_CONNECT,
+                $ctx
+            );
 
-        if (!$this->client) {
+        } catch (\Exception $e) {
 
-            return false;
+            throw new PushException("Failed to connect to APNS: $err : $errstr ");
+        }
+
+        if ($this->client === false) {
+
+            throw new PushException("Failed to connect to APNS: $err : $errstr ");
         }
 
         $this->setStreamBlocking();
@@ -121,12 +134,12 @@ class Push
      */
     public function send(Message $message)
     {
-        foreach ($message->recipients as $token) {
+        foreach ($message->recipients as $key => $token) {
 
             $frameData =
                 chr(1) . pack('n', 32) . pack('H*', $token) .
                 chr(2) . pack('n', $message->getMessageSize()) . $message->encodedMessage .
-                chr(3) . pack('n', 4) . pack('N', "123") .
+                chr(3) . pack('n', 4) . pack('N', $key) .
                 chr(4) . pack('n', 4) . pack('N', time() + 86400) .
                 chr(5) . pack('n', 1) . chr(10);
 
@@ -134,36 +147,73 @@ class Push
 
             fwrite($this->client, $msg, strlen($msg));
 
-            // TODO: This will need to be addressed
-            /*
-             * Currently waiting for 100ms to see if there is a response from Apple which
-             * indicates the last push failed and silently closes the connection. We need to
-             * restart the connection and keep going after the last failure when this happens.
-             */
-            usleep(100000);
+        }
 
-            $apple_error_response = fread($this->client, 6);
+        $this->getErrors($message);
 
-            if ($apple_error_response == "") {
+    }
 
-                $this->log->addNotice("Message sent");
+    /**
+     * If any tokens are rejected by APNS they end up here
+     *
+     * @return array All of the failed tokens or null
+     */
+    public function getFailedTokens()
+    {
+        return $this->failedTokens;
+    }
 
-            } else {
+    /**
+     * Apple will write an error message on failed push notifications and then
+     * silently close the connection. This error message is asynchronous and since no
+     * confirmation is sent on successful messages we can not block the connection
+     * waiting for a response. We therefor try to send all messages then wait half a
+     * second and then see if any errors occurred. If they have, we store the errors
+     * and retry the transmission after the last failed token.
+     *
+     * @param $message
+     */
+    protected function getErrors($message)
+    {
+        usleep(500000);
 
-                $error_response = unpack('Ccommand/Cstatus_code/Nidentifier', $apple_error_response);
+        $apple_error_response = fread($this->client, 6);
 
-                $this->log->addError("Push notification to: " . $token . " failed with error: " . $error_response['status_code']);
+        if ($apple_error_response != "") {
 
-                $this->closeConnection();
+            $error_response = unpack('Ccommand/Cstatus_code/Nidentifier', $apple_error_response);
 
-                $this->connect($this->production,$this->certificate,$this->passphrase);
+            $this->failedTokens[] = $message->recipients[$error_response['identifier']];
 
-            }
+            $this->reduceArray($message, $error_response);
+
+            $this->log->addError("Push notification to: " . $error_response['identifier'] . " failed with error: " . $error_response['status_code']);
+
+            $this->closeConnection();
+
+            $this->connect($this->production, $this->certificate, $this->passphrase);
+
+            $this->send($message);
+
+        } else {
+
+            $this->log->addNotice("Messages sent");
+
+            $this->closeConnection();
 
         }
 
-        $this->closeConnection();
+    }
 
+    /**
+     * @param $message
+     * @param $error_response
+     */
+    protected function reduceArray($message, $error_response)
+    {
+        $i = array_search($error_response['identifier'], array_keys($message->recipients));
+
+        $message->recipients = array_slice($message->recipients, $i + 1);
     }
 
     /**
@@ -179,7 +229,8 @@ class Push
      * @param $certificate
      * @throws PushException
      */
-    protected function verifyEnvironment($production, $certificate)
+    protected
+    function verifyEnvironment($production, $certificate)
     {
         if ($production) {
 
@@ -196,12 +247,14 @@ class Push
         }
     }
 
+
     /**
      * @param $certificate
      * @param $passphrase
      * @return resource
      */
-    protected function configureContext($certificate, $passphrase)
+    protected
+    function configureContext($certificate, $passphrase)
     {
         $ctx = stream_context_create();
 
@@ -217,7 +270,8 @@ class Push
      * we need to set the blocking to 0 so that we don't wait for a response after
      * sending a message before moving on to the next one.
      */
-    protected function setStreamBlocking()
+    protected
+    function setStreamBlocking()
     {
         stream_set_blocking($this->client, 0);
     }
