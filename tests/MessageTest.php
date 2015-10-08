@@ -7,7 +7,7 @@ class MessageTest extends PHPUnit_Framework_TestCase
     public function setUp()
     {
 
-        $this->message = new \Push\Message("6eb29758 dc3d8a11 6df540eb b546e02d 6d63b34c a9498e5b 77a4c733 7ea939ca");
+        $this->message = new \Divergentsoft\Message("6eb29758 dc3d8a11 6df540eb b546e02d 6d63b34c a9498e5b 77a4c733 7ea939ca");
     }
 
     /**
@@ -15,7 +15,7 @@ class MessageTest extends PHPUnit_Framework_TestCase
      */
     public function testBadTokenArray()
     {
-        new \Push\Message(["6eb29758 dc3d8a11 6df540eb hello 6d63b34c a9498e5b 77a4c733 7ea939ca", "6eb29758 dc3d8a11 6df540eb b546e02d 6d63b34c a9498e5b 77a4c733 7ea939ci"]);
+        new \Divergentsoft\Message(["6eb29758 dc3d8a11 6df540eb hello 6d63b34c a9498e5b 77a4c733 7ea939ca", "6eb29758 dc3d8a11 6df540eb b546e02d 6d63b34c a9498e5b 77a4c733 7ea939ci"]);
 
     }
 
@@ -24,7 +24,7 @@ class MessageTest extends PHPUnit_Framework_TestCase
      */
     public function testBadTokenString()
     {
-        new \Push\Message("hello");
+        new \Divergentsoft\Message("hello");
 
     }
 

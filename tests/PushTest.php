@@ -16,7 +16,7 @@ class PushTest extends PHPUnit_Framework_TestCase
 
     public function setUp()
     {
-        $this->push = new \Push\Push();
+        $this->push = new \Divergentsoft\Push();
     }
 
     /**
@@ -36,7 +36,7 @@ class PushTest extends PHPUnit_Framework_TestCase
 
     public function testPush()
     {
-        $message = new \Push\Message();
+        $message = new \Divergentsoft\Message();
 
         $message->initialize(static::TEST_TOKEN);
 
