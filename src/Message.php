@@ -1,6 +1,6 @@
 <?php
 
-namespace Push;
+namespace Divergentsoft;
 
 
 /**

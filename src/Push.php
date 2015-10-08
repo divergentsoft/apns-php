@@ -1,7 +1,7 @@
 <?php
 
 
-namespace Push;
+namespace Divergentsoft;
 
 
 use Monolog\Handler\StreamHandler;

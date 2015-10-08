@@ -16,7 +16,7 @@
   ],
   "autoload": {
     "psr-4": {
-      "Push\\" : "src/"
+      "Divergentsoft\\" : "src/"
     }
   },
   "minimum-stability": "stable"
