@@ -65,9 +65,14 @@ class Push
      * Push constructor. Pass in the log location.
      * @param $logLocation
      */
-    public function __construct($logLocation = __DIR__ . '/../log.txt')
+    public function __construct($logLocation = null)
     {
         $this->log = new Logger('Push');
+
+        if ($logLocation == null) {
+
+            $logLocation = __DIR__ . "/../log.txt";
+        }
 
         if (!is_file($logLocation)) {
 
