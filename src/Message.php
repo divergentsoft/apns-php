@@ -110,7 +110,7 @@ class Message
     /**
      * @param $file
      */
-    public function setSound($file)
+    public function setSound($file = 'default')
     {
         $this->sound = $file;
     }
