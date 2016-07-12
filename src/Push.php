@@ -152,17 +152,30 @@ class Push
 
             $retries = 0;
 
-            while (fwrite($this->client,$msg,strlen($msg)) == 0) {
 
-                sleep(1);
+            try {
 
-                if ($retries == 3){
+                while (fwrite($this->client,$msg,strlen($msg)) == 0) {
 
-                    break;
+                    sleep(1);
+
+                    if ($retries == 3){
+
+                        break;
+                    }
+
+                    $retries++;
                 }
 
-                $retries++;
+            } catch (\Exception $e) {
+
+                $this->closeConnection();
+
+                sleep(2);
+
+                $this->connect($this->production,$this->certificate,$this->passphrase);
             }
+
 
         }
 
