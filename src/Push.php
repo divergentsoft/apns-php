@@ -150,13 +150,18 @@ class Push
 
             $msg = chr(2) . pack('N', strlen($frameData)) . $frameData;
 
-            $result = fwrite($this->client, $msg, strlen($msg));
+            $retries = 0;
 
-            if ($result == 0) {
+            while (fwrite($this->client,$msg,strlen($msg)) == 0) {
 
                 sleep(1);
 
-                fwrite($this->client, $msg, strlen($msg));
+                if ($retries == 3){
+
+                    break;
+                }
+
+                $retries++;
             }
 
         }
