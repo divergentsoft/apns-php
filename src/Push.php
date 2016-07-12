@@ -150,7 +150,14 @@ class Push
 
             $msg = chr(2) . pack('N', strlen($frameData)) . $frameData;
 
-            fwrite($this->client, $msg, strlen($msg));
+            $result = fwrite($this->client, $msg, strlen($msg));
+
+            if ($result == 0) {
+
+                sleep(1);
+
+                fwrite($this->client, $msg, strlen($msg));
+            }
 
         }
 
