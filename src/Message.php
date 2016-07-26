@@ -62,6 +62,8 @@ class Message
 
     public function initialize($tokens)
     {
+        $this->recipients = array();
+
         $this->validateTokens($tokens);
 
         $this->message[static::APPLE_NAMESPACE] = "";
