@@ -11,20 +11,20 @@ class MessageTest extends PHPUnit_Framework_TestCase
     }
 
     /**
-     * @expectedException Push\PushException
+     * @expectedException Divergentsoft\PushException
      */
     public function testBadTokenArray()
     {
-        new \Divergentsoft\Message(["6eb29758 dc3d8a11 6df540eb hello 6d63b34c a9498e5b 77a4c733 7ea939ca", "6eb29758 dc3d8a11 6df540eb b546e02d 6d63b34c a9498e5b 77a4c733 7ea939ci"]);
+        (new \Divergentsoft\Message())->initialize(["6eb29758 dc3d8a11 6df540eb hello 6d63b34c a9498e5b 77a4c733 7ea939ca", "6eb29758 dc3d8a11 6df540eb b546e02d 6d63b34c a9498e5b 77a4c733 7ea939ci"]);
 
     }
 
     /**
-     * @expectedException Push\PushException
+     * @expectedException Divergentsoft\PushException
      */
     public function testBadTokenString()
     {
-        new \Divergentsoft\Message("hello");
+        (new \Divergentsoft\Message())->initialize('hello');
 
     }
 
@@ -61,7 +61,7 @@ class MessageTest extends PHPUnit_Framework_TestCase
 
         $this->message->setCustomProperty("podcasts",['podcast 1' => ['title' => 'some title','body'=> 'some body'], 'podcast 2' => ['title' => '', 'body' => '']]);
 
-        $testMessage = json_encode(['aps'=>'','podcasts' => ['podcast 1' => ['title' => 'some title','body'=> 'some body'], 'podcast 2' => ['title' => '', 'body' => '']]]);
+        $testMessage = json_encode(['podcasts' => ['podcast 1' => ['title' => 'some title','body'=> 'some body'], 'podcast 2' => ['title' => '', 'body' => '']]]);
 
        $this->assertEquals($this->message->getMessage(),$testMessage);
     }

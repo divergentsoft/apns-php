@@ -12,7 +12,7 @@ class PushTest extends PHPUnit_Framework_TestCase
         'eccfcfbfbb9592c3c3a46740254cb49865cdfa384ede7f93882665e141011609'
     ];
 
-    const TEST_CERT = '/Users/rob/Code/php/apns-php/src/oma.pem';
+    const TEST_CERT = '/path/to/cert/cert.pem';
 
     public function setUp()
     {
@@ -20,7 +20,7 @@ class PushTest extends PHPUnit_Framework_TestCase
     }
 
     /**
-     * @expectedException Push\PushException
+     * @expectedException Divergentsoft\PushException
      */
     public function testBadCertificateLocation()
     {
