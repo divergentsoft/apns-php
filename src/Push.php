@@ -13,17 +13,21 @@ use Monolog\Logger;
  */
 class Push
 {
+    /**
+     * Apple's production endpoint
+     */
+    const PRODUCTION_SERVER = 'https://api.push.apple.com';
 
     /**
-     * Apple's production gateway
+     * Apple's sandbox endpoint
      */
-    const PRODUCTION_SERVER = 'ssl://gateway.push.apple.com:2195';
+    const SANDBOX_SERVER = 'https://api.development.push.apple.com';
 
-    /**
-     * Apple's sandbox gateway
-     */
-    const SANDBOX_SERVER = 'ssl://gateway.sandbox.push.apple.com:2195';
-
+    protected static $INVALID_TOKEN_RESPONSES = [
+        "BadDeviceToken",
+        "DeviceTokenNotForTopic",
+        "Unregistered"
+    ];
 
     /**
      * @var Monolog logger instance
@@ -85,7 +89,6 @@ class Push
         }
     }
 
-
     /**
      * Tries to connect to desired APNS and returns false if unavailable
      *
@@ -93,7 +96,6 @@ class Push
      * @param $certificate
      * @param null $passphrase
      * @return bool
-     * @throws PushException
      */
     public function connect($production, $certificate, $passphrase = null)
     {
@@ -103,32 +105,16 @@ class Push
 
         $this->passphrase = $passphrase;
 
-        $this->verifyEnvironment($production, $certificate);
-
-        $ctx = $this->configureContext($certificate, $passphrase);
-
         try {
-            $this->client = stream_socket_client(
-                $this->server,
-                $err,
-                $errstr,
-                60,
-                STREAM_CLIENT_CONNECT,
-                $ctx
-            );
+            $this->verifyEnvironment($production, $certificate);
 
-        } catch (\Exception $e) {
+        } catch(PushException $e) {
 
-            throw new PushException("Failed to connect to APNS: $err : $errstr ");
+            $this->log->addNotice("Failed to verify push notification environment. Invalid APNS certificate location");
+
+            return false;
         }
-
-        if ($this->client === false) {
-
-            throw new PushException("Failed to connect to APNS: $err : $errstr ");
-        }
-
-        $this->setStreamBlocking();
-
+        
         return true;
     }
 
@@ -139,48 +125,45 @@ class Push
      */
     public function send(Message $message)
     {
+        $this->log->addNotice("*** Initiating push delivery ***");
+
+        $http2ch = curl_init();
+
+        $this->setCurlProperties($http2ch, $message);
+
         foreach ($message->recipients as $key => $token) {
 
-            $frameData =
-                chr(1) . pack('n', 32) . pack('H*', $token) .
-                chr(2) . pack('n', $message->getMessageSize()) . $message->encodedMessage .
-                chr(3) . pack('n', 4) . pack('N', $key) .
-                chr(4) . pack('n', 4) . pack('N', time() + 86400) .
-                chr(5) . pack('n', 1) . chr(10);
+            $this->sendHTTP2Push($http2ch, $this->server, $token);
+        }
+        curl_close($http2ch);
 
-            $msg = chr(2) . pack('N', strlen($frameData)) . $frameData;
+        $this->log->addNotice("*** Completed push delivery ***");
+    }
 
-            $retries = 0;
+    protected function sendHTTP2Push($http2ch, $http2_server, $token) {
 
+        $url = "{$http2_server}/3/device/{$token}";
 
-            try {
+        curl_setopt($http2ch, CURLOPT_URL, $url);
 
-                while (fwrite($this->client,$msg,strlen($msg)) == 0) {
+        $result = curl_exec($http2ch);
 
-                    sleep(1);
+        $this->retryCurlIfTimedOut($http2ch, 3);
 
-                    if ($retries == 3){
+        if ($result == FALSE) {
+            
+            $this->log->addNotice("cURL Failed: " . curl_error($http2ch));
 
-                        break;
-                    }
-
-                    $retries++;
-                }
-
-            } catch (\Exception $e) {
-
-                $this->closeConnection();
-
-                sleep(2);
-
-                $this->connect($this->production,$this->certificate,$this->passphrase);
-            }
-
-
+            throw new PushException("cURL Failed: " . curl_error($http2ch));
         }
 
-        $this->getErrors($message);
+        $status = curl_getinfo($http2ch, CURLINFO_HTTP_CODE);
 
+        $this->addToFailedTokensIfFailed($result, $token);
+
+        $this->logSend($status, $result, $token);
+
+        return $status;
     }
 
     /**
@@ -193,65 +176,86 @@ class Push
         return $this->failedTokens;
     }
 
-    /**
-     * Apple will write an error message on failed push notifications and then
-     * silently close the connection. This error message is asynchronous and since no
-     * confirmation is sent on successful messages we can not block the connection
-     * waiting for a response. We therefor try to send all messages then wait half a
-     * second and then see if any errors occurred. If they have, we store the errors
-     * and retry the transmission after the last failed token.
-     *
-     * @param $message
-     */
-    protected function getErrors($message)
-    {
-        usleep(500000);
+    protected function setCurlProperties($http2ch, $message) {
 
-        $apple_error_response = fread($this->client, 6);
-
-        if ($apple_error_response != "") {
-
-            $error_response = unpack('Ccommand/Cstatus_code/Nidentifier', $apple_error_response);
-
-            $this->failedTokens[] = $message->recipients[$error_response['identifier']];
-
-            $this->reduceArray($message, $error_response);
-
-            $this->log->addError("Push notification to: " . $error_response['identifier'] . " failed with error: " . $error_response['status_code']);
-
-            $this->closeConnection();
-
-            $this->connect($this->production, $this->certificate, $this->passphrase);
-
-            $this->send($message);
-
-        } else {
-
-            $this->log->addNotice("Messages sent");
-
-            $this->closeConnection();
-
+        if (!defined('CURL_HTTP_VERSION_2_0')) {
+            define('CURL_HTTP_VERSION_2_0', 3);
         }
 
+        curl_setopt_array($http2ch, [
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
+            CURLOPT_PORT => 443,
+            CURLOPT_POST => TRUE,
+            CURLOPT_POSTFIELDS => $message->encodedMessage,
+            CURLOPT_RETURNTRANSFER => TRUE,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSLCERT => $this->certificate,
+            CURLOPT_HEADER => 1
+        ]);
+    }
+
+    protected function retryCurlIfTimedOut($http2ch, $maxAttempts) {
+
+        $attempts = 0;
+
+        while(curl_errno($http2ch) == 28 && $attempts < maxAttempts) {
+
+            if ($attempts > 0) {
+                sleep(1);
+            }
+
+            $result = curl_exec($http2ch);
+
+            $attempts++;
+        }
     }
 
     /**
-     * @param $message
-     * @param $error_response
-     */
-    protected function reduceArray($message, $error_response)
-    {
-        $i = array_search($error_response['identifier'], array_keys($message->recipients));
+    * @param $status
+    * @param $result
+    * @param $token
+    */
+    protected function logSend($status, $result, $token) {
 
-        $message->recipients = array_slice($message->recipients, $i + 1);
+        if ($status == 200) {
+
+             $this->log->addNotice("Message delivered to recipient token: {$token}");
+
+        } elseif ($status !== 200 && $status !== null) {
+
+            $this->log->addNotice("Message failed to recipient token: {$token} with status: {$status} and reason {$result}");
+        } else {
+
+            $this->log->addNotice("Message failed to send to recipient token: {$token} with no status/ unknown reason");
+        }
     }
 
     /**
-     * Close the socket stream
-     */
-    protected function closeConnection()
-    {
-        fclose($this->client);
+    * @param $result
+    * @param $token
+    */
+    protected function addToFailedTokensIfFailed($result, $token) {
+
+        if ($this->checkForFailedTokenResponse($result)) {
+            
+            $this->failedTokens[] = $token;
+        }
+    }
+    /**
+    * @param $result
+    */
+    protected function checkForFailedTokenResponse($result) {
+
+        foreach (Push::$INVALID_TOKEN_RESPONSES as $invalid_response_reason) {
+            
+            if (strpos($result, $invalid_response_reason) !== false) {
+                
+                return true;
+            }        
+        }
+
+        return false;
     }
 
     /**
@@ -259,8 +263,7 @@ class Push
      * @param $certificate
      * @throws PushException
      */
-    protected
-    function verifyEnvironment($production, $certificate)
+    protected function verifyEnvironment($production, $certificate)
     {
         if ($production) {
 
@@ -275,34 +278,5 @@ class Push
 
             throw new PushException("Invalid certificate file location");
         }
-    }
-
-
-    /**
-     * @param $certificate
-     * @param $passphrase
-     * @return resource
-     */
-    protected
-    function configureContext($certificate, $passphrase)
-    {
-        $ctx = stream_context_create();
-
-        stream_context_set_option($ctx, 'ssl', 'local_cert', $certificate);
-
-        stream_context_set_option($ctx, 'ssl', 'passphrase', $passphrase);
-
-        return $ctx;
-    }
-
-    /**
-     * Since Apple does not return any value on successful push notifications,
-     * we need to set the blocking to 0 so that we don't wait for a response after
-     * sending a message before moving on to the next one.
-     */
-    protected
-    function setStreamBlocking()
-    {
-        stream_set_blocking($this->client, 0);
     }
 }
