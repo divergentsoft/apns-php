@@ -23,6 +23,11 @@ class Push
      */
     const SANDBOX_SERVER = 'https://api.development.push.apple.com';
 
+    /**
+     * The number of concurrent connections to create with the APNS endpoint
+     */
+    const CONCURRENT_CONNECTOIONS = 150;
+
     protected static $INVALID_TOKEN_RESPONSES = [
         "BadDeviceToken",
         "DeviceTokenNotForTopic",
@@ -88,7 +93,6 @@ class Push
             $this->log->pushHandler(new StreamHandler($logLocation), Logger::WARNING);
         }
     }
-
     /**
      * Tries to connect to desired APNS and returns false if unavailable
      *
@@ -127,43 +131,47 @@ class Push
     {
         $this->log->addNotice("*** Initiating push delivery ***");
 
-        $http2ch = curl_init();
+        $http2ch_group = array();
 
-        $this->setCurlProperties($http2ch, $message);
+        $mh = curl_multi_init();
 
-        foreach ($message->recipients as $key => $token) {
+        for ($i=0; $i < static::CONCURRENT_CONNECTOIONS  ; $i++) { // Chunk size
 
-            $this->sendHTTP2Push($http2ch, $this->server, $token);
+            $http2ch = curl_init();
+
+            $this->setCurlProperties($http2ch, $message);
+
+            curl_multi_add_handle($mh, $http2ch);
+
+            $http2ch_group[] = $http2ch;
         }
-        curl_close($http2ch);
+
+        $token_group = array_chunk($message->recipients, static::CONCURRENT_CONNECTOIONS);
+
+        foreach ($token_group as $key => $tokens) {
+
+            $this->sendHTTP2PushToGroup($http2ch_group, $this->server, $tokens, $mh);
+        }
+        
+        foreach ($http2ch_group as $http2ch) {
+            
+            curl_multi_remove_handle($mh, $http2ch);
+
+            curl_close($http2ch);
+        }
+
+        curl_multi_close($mh);
 
         $this->log->addNotice("*** Completed push delivery ***");
     }
 
-    protected function sendHTTP2Push($http2ch, $http2_server, $token) {
+    protected function sendHTTP2PushToGroup($http2ch_group, $http2_server, $tokens, $mh) {
 
-        $url = "{$http2_server}/3/device/{$token}";
+        $this->configureMultiExec($tokens, $http2_server, $http2ch_group, $mh);
 
-        curl_setopt($http2ch, CURLOPT_URL, $url);
+        $this->runMultiExec($mh);
 
-        $result = curl_exec($http2ch);
-
-        $this->retryCurlIfTimedOut($http2ch, 3);
-
-        if ($result == FALSE) {
-            
-            $this->log->addNotice("cURL Failed: " . curl_error($http2ch));
-
-            throw new PushException("cURL Failed: " . curl_error($http2ch));
-        }
-
-        $status = curl_getinfo($http2ch, CURLINFO_HTTP_CODE);
-
-        $this->addToFailedTokensIfFailed($result, $token);
-
-        $this->logSend($status, $result, $token);
-
-        return $status;
+        $this->recordResultsAndReset($tokens, $http2ch_group, $mh);
     }
 
     /**
@@ -195,19 +203,39 @@ class Push
         ]);
     }
 
-    protected function retryCurlIfTimedOut($http2ch, $maxAttempts) {
+    protected function runMultiExec($mh) {
 
-        $attempts = 0;
+        $running = null;
 
-        while(curl_errno($http2ch) == 28 && $attempts < maxAttempts) {
+        do {
 
-            if ($attempts > 0) {
-                sleep(1);
-            }
+            curl_multi_exec($mh, $running);
+        }
 
-            $result = curl_exec($http2ch);
+        while ($running > 0);
+    }
 
-            $attempts++;
+    protected function configureMultiExec($tokens, $http2_server, $http2ch_group, $mh) {
+
+        foreach ($tokens as $key => $token) {
+
+            $url = "{$http2_server}/3/device/{$token}";
+
+            curl_setopt($http2ch_group[$key], CURLOPT_URL, $url);
+
+            curl_multi_add_handle($mh, $http2ch_group[$key]);
+        }
+    }
+    
+    protected function recordResultsAndReset($tokens, $http2ch_group, $mh) {
+
+        foreach ($tokens as $key => $token) {
+
+            $this->addToFailedTokensIfFailed($http2ch_group[$key], $token);
+
+            $this->logSend($http2ch_group[$key], $token);
+
+            curl_multi_remove_handle($mh, $http2ch_group[$key]);
         }
     }
 
@@ -216,7 +244,11 @@ class Push
     * @param $result
     * @param $token
     */
-    protected function logSend($status, $result, $token) {
+    protected function logSend($http2ch, $token) {
+
+        $status = curl_getinfo($http2ch, CURLINFO_HTTP_CODE);
+
+        $result = curl_multi_getcontent($http2ch);
 
         if ($status == 200) {
 
@@ -235,13 +267,16 @@ class Push
     * @param $result
     * @param $token
     */
-    protected function addToFailedTokensIfFailed($result, $token) {
+    protected function addToFailedTokensIfFailed($http2ch, $token) {
+
+        $result = curl_multi_getcontent($http2ch);
 
         if ($this->checkForFailedTokenResponse($result)) {
             
             $this->failedTokens[] = $token;
         }
     }
+
     /**
     * @param $result
     */
