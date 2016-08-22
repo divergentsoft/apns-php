@@ -127,7 +127,7 @@ class Push
      *
      * @param Message $message
      */
-    public function send(Message $message)
+    public function send(Message $message, $apns_topic = null)
     {
         $this->log->addNotice("*** Initiating push delivery ***");
 
@@ -139,7 +139,7 @@ class Push
 
             $http2ch = curl_init();
 
-            $this->setCurlProperties($http2ch, $message);
+            $this->setCurlProperties($http2ch, $message, $apns_topic);
 
             curl_multi_add_handle($mh, $http2ch);
 
@@ -184,15 +184,20 @@ class Push
         return $this->failedTokens;
     }
 
-    protected function setCurlProperties($http2ch, $message) {
+    protected function setCurlProperties($http2ch, $message, $apns_topic) {
 
         if (!defined('CURL_HTTP_VERSION_2_0')) {
             define('CURL_HTTP_VERSION_2_0', 3);
         }
 
+        $headers = array(
+            "apns-topic: {$apns_topic}"
+        );
+
         curl_setopt_array($http2ch, [
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
             CURLOPT_PORT => 443,
+            CURLOPT_HEADER => $headers,
             CURLOPT_POST => TRUE,
             CURLOPT_POSTFIELDS => $message->encodedMessage,
             CURLOPT_RETURNTRANSFER => TRUE,
