@@ -197,7 +197,7 @@ class Push
         curl_setopt_array($http2ch, [
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
             CURLOPT_PORT => 443,
-            CURLOPT_HEADER => $headers,
+            CURLOPT_HTTPHEADER => $headers,
             CURLOPT_POST => TRUE,
             CURLOPT_POSTFIELDS => $message->encodedMessage,
             CURLOPT_RETURNTRANSFER => TRUE,
